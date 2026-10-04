@@ -20,7 +20,30 @@ PREP.dpc=d=>{
     ope,s1,s2,sub,icd,opeB:group(ope,r=>r.b6+"|"+r.dig),s1B:group(s1,r=>r.b6+"|"+r.dig),s2B:group(s2,r=>r.b6+"|"+r.dig),subB:group(sub,r=>r.b6+"|"+r.dig),
     icdB:group(icd,r=>r.b6),icdCode:group(icd,r=>r.icd),dekidaka:d.dekidaka_ope,dummy:d.dummy,
     bh:Object.entries(d.bunrui).map(([b6,n])=>({b6,n:nk(n),h:norm(b6+"|"+n)}))};
+  return VAULT.json("kougaku-data.json").then(prepKougaku).catch(()=>{D.dpc.kg=null});
 };
+/* 高額薬剤（別表1）・高額検査（別表2）：対象の番号の患者に使うと包括評価の対象外（出来高算定） */
+function prepKougaku(k){
+  const items=[];
+  k.drugs.forEach(dr=>dr.ind.forEach(ind=>items.push({type:"drug",no:dr.no,name:nk(dr.name),brands:dr.brands.map(nk),ind:nk(ind.ind),icd:ind.icd,all:ind.all,codes:ind.codes,groups:ind.groups,note:nk(ind.note)})));
+  k.tests.forEach(t=>items.push({type:"test",no:t.no,name:nk(t.name),brands:[],ind:nk(t.name),icd:t.icd,all:t.all,codes:t.codes,groups:t.groups,note:nk(t.note)}));
+  for(const it of items)it.h=norm([it.name,...it.brands,it.ind,it.icd].join("|"));
+  const byCode=new Map(),byB6=new Map();
+  items.forEach((it,i)=>{for(const c of it.codes){if(!byCode.has(c))byCode.set(c,[]);byCode.get(c).push(i);const b=c.slice(0,6);if(!byB6.has(b))byB6.set(b,new Set());byB6.get(b).add(i)}
+    for(const [b] of it.groups){if(!byB6.has(b))byB6.set(b,new Set());byB6.get(b).add(i)}});
+  D.dpc.kg={title:k.title,items,byCode,byB6,allItems:items.map((it,i)=>it.all?i:-1).filter(i=>i>=0),drugCount:k.drugs.length,testCount:k.tests.length};
+}
+const kgFor=code=>D.dpc&&D.dpc.kg?(D.dpc.kg.byCode.get(code)||[]):[];
+function kgItemHtml(i,terms,codeHere){
+  const it=D.dpc.kg.items[i];
+  return`<div class="kg"><div class="kgh"><span class="pill">${it.type==="drug"?"高額薬剤":"高額検査"} ${it.no}</span><b>${markText(it.name,terms||[])}</b></div>
+    ${it.brands.length?`<div class="note">銘柄（参考）：${markText(it.brands.join("、"),terms||[])}</div>`:""}
+    <div class="kgi">${it.type==="drug"?`<span class="k">適応症</span>${emph(markText(it.ind,terms||[]))}`:""}${it.icd?`<span class="k">ICD-10</span><span class="icdb">${esc(it.icd)}</span>`:""}</div>
+    ${it.all?`<div class="em-n" style="display:inline-block;margin-top:4px">全ての診断群分類番号が対象</div>`:""}
+    ${it.note?`<div class="note kgn">${emph(esc(it.note))}</div>`:""}
+    ${codeHere?"":`<div class="kgc">${it.groups.map(([b,n])=>`<button class="sec-link" data-open="dpc:B${b}"><span class="code" style="color:var(--dpc)">${b}</span><span style="flex:1">${esc(n)}</span><span class="note">${it.codes.filter(c=>c.startsWith(b)).length}番号</span></button>`).join("")}</div>`}
+  </div>`;
+}
 
 const dpcName=b6=>nk(D.dpc.bunrui[b6]||"");
 const fmtCode=c=>`<span class="dcode">${c.slice(0,6)}<i>${c.slice(6,8)}</i><b>${c.slice(8,10)}</b><i>${c.slice(10,14)}</i></span>`;
@@ -32,7 +55,7 @@ function dpcSearch(terms){
   const add=(b6,score,why)=>{if(!dd.bunrui[b6])return;const e=hits.get(b6)||{b6,score:9,why:[]};e.score=Math.min(e.score,score);if(e.why.length<4&&!e.why.includes(why))e.why.push(why);hits.set(b6,e)};
   if(!terms.length)return[];
   const raw=terms.map(vs=>vs[0]).join("");
-  if(/^[0-9x]{6,14}$/i.test(raw)){for(const x of dd.codes)if(x.c.startsWith(raw.toLowerCase()))add(x.b6,0,"番号 "+x.c)}
+  if(/^[0-9x][0-9a-fx]{5,13}$/i.test(raw)&&/^\d{5}/.test(raw)){const q=raw.slice(0,6).toLowerCase()+raw.slice(6).toUpperCase().replace(/X/g,"x");for(const x of dd.codes)if(x.c.startsWith(q))add(x.b6,0,"番号 "+x.c)}
   const H=h=>terms.every(vs=>vs.some(v=>has(h,v)));
   for(const b of dd.bh)if(H(b.h))add(b.b6,0,"分類名");
   for(const r of dd.icd)if(H(r.h))add(r.b6,1,`ICD ${fmtIcd(r.icd)} ${r.n}`);
@@ -40,6 +63,7 @@ function dpcSearch(terms){
   for(const r of dd.ope)if(r.dig!=="99"&&r.dig!=="97"||r.k.startsWith("K"))if(H(r.h)&&!/^KKK/.test(r.k))add(r.b6,2,`手術 ${r.k} ${r.n}`);
   for(const r of dd.s1)if(H(r.h))add(r.b6,3,`処置等1 ${r.n}`);
   for(const r of dd.s2)if(H(r.h))add(r.b6,3,`処置等2 ${r.n}`);
+  if(dd.kg)dd.kg.items.forEach(it=>{if(H(it.h))for(const [b] of it.groups)add(b,3,`${it.type==="drug"?"高額薬剤":"高額検査"} ${it.name}`)});
   for(const r of dd.sub)if(H(r.h))add(r.b6,4,`副傷病 ${fmtIcd(r.icd)} ${r.n}`);
   return[...hits.values()].sort((a,b)=>a.score-b.score||a.b6.localeCompare(b.b6));
 }
@@ -135,7 +159,7 @@ function dpcCodeCard(x,big){
     <div class="nm">${fmtCode(x.c)}</div>
     <div class="val">${p0&&p0[0]?`<span class="v">${fmt(p0[0])}</span><span class="u">点/日〜</span>`:`<span class="u" style="color:var(--warn)">包括対象外（出来高）</span>`}</div>
     <div class="sub">${esc(desc||x.t[0])}</div>
-    ${d0&&d0[0]!=null?`<div class="tags"><span class="tag">期間Ⅰ ${d0[0]}日</span><span class="tag">Ⅱ ${d0[1]}日</span><span class="tag">Ⅲ ${d0[2]}日</span></div>`:""}
+    ${d0&&d0[0]!=null||kgFor(x.c).length?`<div class="tags">${d0&&d0[0]!=null?`<span class="tag">期間Ⅰ ${d0[0]}日</span><span class="tag">Ⅱ ${d0[1]}日</span><span class="tag">Ⅲ ${d0[2]}日</span>`:""}${kgFor(x.c).length?`<span class="tag w">高額薬剤等 ${kgFor(x.c).length}件</span>`:""}</div>`:""}
   </div>`;
 }
 /* ---------- 詳細：番号の内訳・入院期間と点数の3回比較 ---------- */
@@ -162,14 +186,18 @@ function openDpc(id){
      <div class="legend"><span><i class="p1"></i>期間Ⅰ</span><span><i class="p2"></i>期間Ⅱ</span><span><i class="p3"></i>期間Ⅲ</span></div></div>
    <div class="blk"><h3>POINTS ／ 1日あたり点数と入院日数</h3><div class="tbl"><table><tr><th>改定</th><th>日Ⅰ</th><th>日Ⅱ</th><th>日Ⅲ</th><th>点Ⅰ</th><th>点Ⅱ</th><th>点Ⅲ</th></tr>${rows}</table></div>
      <p class="note">期間Ⅱまで入院した場合の包括点数の目安：${dd.revs.map((rv,i)=>{const t=total(x.d[i],x.p[i]);return`${esc(rv.label)} ${t!=null?fmt(t)+"点":"—"}`}).join("／")}（点Ⅰ×日Ⅰ＋点Ⅱ×（日Ⅱ−日Ⅰ）。医療機関別係数は含みません）</p></div>
+   ${dd.kg?`<div class="blk" style="--mod:var(--warn)"><h3>HIGH-COST DRUGS ／ 高額薬剤・高額検査（使用すると出来高算定）</h3>
+     ${kgFor(x.c).length?`<p class="note">この番号の患者に次の薬剤・検査を使った場合は、包括評価の対象外となり出来高で算定します（各備考の条件に注意）。</p>${kgFor(x.c).map(i=>kgItemHtml(i,[],true)).join("")}`:`<div class="empty">この番号に個別に指定された高額薬剤・高額検査はありません。</div>`}
+     ${dd.kg.allItems.length?`<details class="raw"><summary>全ての診断群分類が対象の薬剤（${dd.kg.allItems.length}件）</summary>${dd.kg.allItems.map(i=>kgItemHtml(i,[],true)).join("")}</details>`:""}
+     <p class="note">出典：${esc(dd.kg.title)}</p></div>`:""}
    <div class="btns"><button class="btn pri" data-open="dpc:B${x.b6}">この分類でコーディングする</button></div>
    <p class="note">出典：厚生労働省「診断群分類（DPC）電子点数表」（${dd.revs.map(r=>esc(r.label)).join("・")}）。</p>`);
 }
 /* ---------- 薬剤・出来高 ---------- */
 function dpcDrugTab(b){
   const st=S.dpc,dd=D.dpc;
-  const box=searchBox("ddq","処置等2の薬剤・処置名で逆引き（例：ペムブロリズマブ、ニボルマブ、放射線）",st.dq,q=>{st.dq=q;res()});
-  b.innerHTML=`<div class="chips" style="margin-top:12px"><button class="chip" data-s="s2" aria-pressed="${st.dsub==="s2"}">手術・処置等2（化学療法など）</button><button class="chip" data-s="s1" aria-pressed="${st.dsub==="s1"}">手術・処置等1</button><button class="chip" data-s="deki" aria-pressed="${st.dsub==="deki"}">出来高算定手術</button><button class="chip" data-s="high" aria-pressed="${st.dsub==="high"}">高額薬剤</button></div>
+  const box=searchBox("ddq",st.dsub==="high"?"高額薬剤・検査を薬剤名・銘柄・適応症・ICDで絞り込み（例：キイトルーダ、C34）":"処置等2の薬剤・処置名で逆引き（例：ペムブロリズマブ、ニボルマブ、放射線）",st.dq,q=>{st.dq=q;res()});
+  b.innerHTML=`<div class="chips" style="margin-top:12px"><button class="chip" data-s="s2" aria-pressed="${st.dsub==="s2"}">手術・処置等2（化学療法など）</button><button class="chip" data-s="s1" aria-pressed="${st.dsub==="s1"}">手術・処置等1</button><button class="chip" data-s="deki" aria-pressed="${st.dsub==="deki"}">出来高算定手術</button><button class="chip" data-s="high" aria-pressed="${st.dsub==="high"}">高額薬剤・高額検査</button></div>
     <div id="dsrch">${box.html}</div><div id="ddres"></div>`;
   box.bind();
   b.querySelectorAll("[data-s]").forEach(x=>x.onclick=()=>{st.dsub=x.dataset.s;dpcDrugTab(b)});
@@ -177,9 +205,15 @@ function dpcDrugTab(b){
     const r=$("#ddres"),terms=queryTerms(st.dq);
     if(st.dsub==="deki"){$("#dsrch").hidden=true;
       r.innerHTML=`<p class="note" style="margin-top:12px">DPC算定でも手術料を出来高で算定する手術（移植術・厚生労働大臣が指定するもの）。</p><div class="tbl"><table><tr><th>Kコード</th><th>名称</th><th>区分</th></tr>${dd.dekidaka.map(([k,n,c])=>`<tr><td class="n">${esc(k)}</td><td class="w">${esc(n)}</td><td>${esc(c)}</td></tr>`).join("")}</table></div>`;return}
-    if(st.dsub==="high"){$("#dsrch").hidden=true;
-      r.innerHTML=`<div class="warnbox" style="margin-top:12px">高額薬剤（新たに薬価収載された薬剤などで、使用すると出来高算定となるもの）の判定一覧は、厚生労働省から新薬収載のたびにPDFで公表されています。現在このデータの取り込みを準備中です。</div>`;return}
     $("#dsrch").hidden=false;
+    if(st.dsub==="high"){
+      if(!dd.kg){r.innerHTML=`<div class="empty" style="margin-top:12px">高額薬剤のデータを読み込めませんでした。</div>`;return}
+      const list=dd.kg.items.map((it,i)=>[it,i]).filter(([it])=>!terms.length||terms.every(vs=>vs.some(v=>has(it.h,v))));
+      r.innerHTML=`<p class="note" style="margin-top:12px">${esc(dd.kg.title)}。対象の診断群分類番号の患者にこれらの薬剤・検査を使うと、包括評価の対象外（出来高算定）になります。</p>
+        <div class="meta"><span>${list.length} 件（薬剤 ${dd.kg.drugCount}・検査 ${dd.kg.testCount}）</span></div>`+
+        list.map(([it,i])=>`<div class="part"><button><span><span class="code" style="color:var(--warn);font-family:var(--f-tech);margin-right:6px">${it.type==="drug"?"薬":"検"}${it.no}</span>${markText(it.name,terms)}<br><span class="note">${markText(it.ind.slice(0,60),terms)}${it.ind.length>60?"…":""}</span></span><span class="n">${it.all?"全分類":it.groups.length+"分類"}</span></button><div class="body" hidden style="padding:8px 12px">${kgItemHtml(i,terms,false)}</div></div>`).join("");
+      r.querySelectorAll(".part>button").forEach(x=>x.onclick=()=>{const bd=x.nextElementSibling;bd.hidden=!bd.hidden});
+      return}
     const src=st.dsub==="s1"?dd.s1:dd.s2;
     if(!terms.length){r.innerHTML=`<p class="note" style="margin-top:12px">薬剤名・処置名を入れると、その薬剤・処置が「手術・処置等${st.dsub==="s1"?1:2}」に定義されている診断群分類と、番号の桁の値を一覧します。</p>`;return}
     const hit=src.filter(x=>terms.every(vs=>vs.some(v=>has(x.h,v))));
