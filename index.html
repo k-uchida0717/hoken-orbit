@@ -59,7 +59,7 @@ a{color:var(--mod)}
 .logo small{display:block;font-family:var(--f-tech);font-size:10px;letter-spacing:.32em;color:var(--dim)}
 .bar .sp{flex:1}
 .chip-live{font-family:var(--f-tech);font-size:10.5px;letter-spacing:.12em;color:var(--core);border:1px solid rgba(125,255,207,.35);border-radius:999px;padding:3px 9px;white-space:nowrap;display:flex;align-items:center;gap:6px}
-@media (max-width:380px){.chip-live{display:none}.logo small{letter-spacing:.18em}}
+@media (max-width:420px){.chip-live:not(.out){display:none}.chip-live.out{padding:3px 7px;font-size:10px}.logo small{letter-spacing:.18em}}
 .chip-live i{width:6px;height:6px;border-radius:50%;background:var(--core);box-shadow:0 0 8px var(--core)}
 
 /* ---------- glass primitives ---------- */
@@ -306,6 +306,7 @@ h3.gh{font-size:14px;font-weight:900;margin:18px 0 8px}
 .login-card input:focus{outline:none;border-color:var(--core);box-shadow:0 0 0 3px color-mix(in srgb,var(--core) 25%,transparent)}
 .login-card .keep{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim);margin-top:8px}
 .login-card .err{color:var(--up);font-size:13px;margin:4px 0 0}
+.login-card .ok{color:var(--core);font-size:13px;margin:4px 0 0}
 .login-card .btn{justify-content:center;margin-top:10px;--mod:var(--core)}
 .chip-live.out{background:none;color:var(--dim);border-color:var(--rim);cursor:pointer;margin-left:6px}
 @media (max-width:380px){.chip-live.out{display:inline-flex}}
