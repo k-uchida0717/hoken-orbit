@@ -63,7 +63,8 @@ function renderByomei(){
       <div class="chips">${["しんきんこうそく","2型糖尿病","I21","肺炎","だいたいこつけいぶこっせつ"].map(x=>`<button class="chip ex">${x}</button>`).join("")}</div></div>`;
       r.querySelectorAll(".ex").forEach(x=>x.onclick=()=>{st.q=x.textContent;$("#bq").value=st.q;res()});return}
     const rows=byomeiSearch(terms);
-    r.innerHTML=`<div class="meta"><span>${rows.length.toLocaleString()} 件</span><span>ICD-10／DPC分類</span></div>
+    DL.byomei=()=>({name:`傷病名_${st.q}`,header:["傷病名コード","傷病名","読み","ICD-10","ICD-10の名称","ICD-10(2)","DPC分類"],rows:rows.map(x=>[x.c,x.n,x.y,x.icd1,icdName(x.icd1),x.icd2,dpcForIcd(x.icd1).map(b=>b+" "+dpcName(b)).join(" / ")])});
+    r.innerHTML=`<div class="meta"><span>${rows.length.toLocaleString()} 件</span><span>ICD-10／DPC分類 ${rows.length?dlBtn("byomei"):""}</span></div>
       ${rows.length?`<div class="list">${rows.slice(0,st.limit).map(x=>byomeiCard(x,terms)).join("")}</div>`:`<div class="empty">該当する傷病名がありません。</div>`}
       ${rows.length>st.limit?`<button class="more" id="bmore">さらに表示（残り ${(rows.length-st.limit).toLocaleString()} 件）</button>`:""}`;
     const m=$("#bmore");if(m)m.onclick=()=>{st.limit+=100;res()};

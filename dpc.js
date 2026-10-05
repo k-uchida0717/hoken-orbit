@@ -96,7 +96,8 @@ function dpcSearchTab(b){
       <div class="chips">${["急性心筋梗塞","I21","K546","ペムブロリズマブ","人工呼吸","肺炎","060035"].map(x=>`<button class="chip ex">${x}</button>`).join("")}</div></div>`;
       r.querySelectorAll(".ex").forEach(x=>x.onclick=()=>{st.q=x.textContent;$("#dq").value=st.q;res()});return}
     const hits=dpcSearch(terms);
-    r.innerHTML=`<div class="meta"><span>${hits.length.toLocaleString()} 分類</span><span>当たった理由をタグで表示</span></div>
+    DL.dpc=()=>({name:`DPC分類_${st.q}`,header:["分類","名称","MDC","当たった理由","番号の数"],rows:hits.map(h=>[h.b6,dpcName(h.b6),h.b6.slice(0,2)+" "+(D.dpc.mdc[h.b6.slice(0,2)]||""),h.why.join(" / "),(D.dpc.byB6.get(h.b6)||[]).filter(x=>x.p[0]).length])});
+    r.innerHTML=`<div class="meta"><span>${hits.length.toLocaleString()} 分類</span><span>当たった理由をタグで表示 ${hits.length?dlBtn("dpc"):""}</span></div>
       ${hits.length?`<div class="list">${hits.slice(0,st.limit).map(h=>dpcCard(h,terms)).join("")}</div>`:`<div class="empty">該当する分類がありません。</div>`}
       ${hits.length>st.limit?`<button class="more" id="dmore">さらに表示</button>`:""}`;
     const m=$("#dmore");if(m)m.onclick=()=>{st.limit+=40;res()};
@@ -138,6 +139,8 @@ function dpcCodeTab(b){
     return`<div class="facet"><div class="fh"><span>${esc(p[2])}</span><small>${s+1}${l>1?"-"+(s+l):""}桁目</small>${st.sel[pi]!=null?`<button class="clr" data-clr="${pi}">選び直す</button>`:""}</div>${opts}</div>`;
   }).join("");
   const done=cands.length===1;
+  DL.dpccode=()=>({name:`DPC番号_${st.b6}`,header:["診断群分類番号","傷病名","手術","手術・処置等1","手術・処置等2","定義副傷病","重症度等",...dd.revs.flatMap(r=>[r.label+" 日Ⅰ",r.label+" 日Ⅱ",r.label+" 日Ⅲ",r.label+" 点Ⅰ",r.label+" 点Ⅱ",r.label+" 点Ⅲ"]),"高額薬剤等"],
+    rows:cands.map(x=>[x.c,...x.t,...dd.revs.flatMap((r,i)=>[...(x.d[i]||[null,null,null]),...(x.p[i]||[null,null,null])]),kgFor(x.c).map(i=>dd.kg.items[i].name).join(" / ")])});
   b.innerHTML=`<div class="panel dpc-head">
       <div class="eyebrow">DIAGNOSIS GROUP</div>
       <div class="dh"><span class="code">${st.b6}</span> ${esc(dpcName(st.b6))}</div>
@@ -147,7 +150,7 @@ function dpcCodeTab(b){
     </div>
     ${done?`<div class="confirm"><div class="eyebrow">CODE CONFIRMED ／ コーディング確定</div>${dpcCodeCard(cands[0],true)}</div>`:""}
     <div class="facets">${facets}</div>
-    <h3 class="gh">候補の番号</h3><div class="list">${cands.slice(0,60).map(x=>dpcCodeCard(x,false)).join("")}</div>`;
+    <h3 class="gh">候補の番号 ${dlBtn("dpccode")}</h3><div class="list">${cands.slice(0,60).map(x=>dpcCodeCard(x,false)).join("")}</div>`;
   b.querySelectorAll(".opt").forEach(o=>o.onclick=()=>{const pi=+o.dataset.pi;st.sel[pi]===o.dataset.v?delete st.sel[pi]:st.sel[pi]=o.dataset.v;dpcCodeTab(b)});
   b.querySelectorAll("[data-clr]").forEach(o=>o.onclick=()=>{delete st.sel[+o.dataset.clr];dpcCodeTab(b)});
   const r=$("#dreset");if(r)r.onclick=()=>{st.sel={};dpcCodeTab(b)};
