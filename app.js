@@ -145,7 +145,7 @@ function load(){
   const prep={yakka:prepYakka,kensa:prepKensa,ryuui:prepRyuui,...PREP};
   for(const k of keys)ready[k]=j(k+"-data.json").then(prep[k]);
   j("manifest.json").then(m=>{D.man=m;liveChip()}).catch(()=>{});
-  for(const k of keys)ready[k].then(()=>{if(route.name==="home")renderHome();else if(route.name===k||(k==="ryuui"&&route.name==="kensa")||(k==="gigi"&&route.name==="ryuui"))render()}).catch(e=>{D[k]={error:e.message};if(route.name===k||route.name==="home")render()});
+  for(const k of keys)ready[k].then(()=>{if(route.name==="home")renderHome();else if(route.name===k||(k==="ryuui"&&route.name==="kensa")||((k==="gigi"||k==="tekiyo")&&route.name==="ryuui"))render()}).catch(e=>{D[k]={error:e.message};if(route.name===k||route.name==="home")render()});
   ready.all=Promise.allSettled(keys.map(k=>ready[k]));
 }
 function prepYakka(d){
@@ -329,10 +329,11 @@ function homeResults(){
   if(D.kensa&&!D.kensa.error){const r=searchKensa(terms,"");secs.push(["kensa","診療行為・点数",r.length,r.slice(0,5).map(x=>kensaCard(x,0,terms)).join("")])}
   for(const m of MODS)if(D[m.key]&&!D[m.key].error){const r=m.search(terms);secs.push([m.key,m.label,r.length,r.slice(0,5).map(x=>m.card(x,terms)).join("")])}
   if(D.ryuui&&!D.ryuui.error){const r=searchRyuui(terms,"");secs.push(["ryuui","留意事項",r.length,r.slice(0,5).map(x=>ryuuiCard(x,terms)).join("")])}
+  if(typeof tekiyoOk==="function"&&tekiyoOk()){const r=searchTekiyo(terms);secs.push(["tekiyo","摘要欄の記載事項",r.length,r.slice(0,5).map(x=>tekiyoCard(x,terms)).join("")])}
   if(typeof gigiOk==="function"&&gigiOk()){const r=searchGigi(terms,"");secs.push(["gigi","疑義解釈",r.length,r.slice(0,5).map(x=>gigiCard(x,terms)).join("")])}
   box.innerHTML=secs.map(([k,l,n,html])=>`<section class="xsec" style="--c:var(--${k});--mod:var(--${k})"><h3><i></i>${l}<span>${n.toLocaleString()} 件</span>${n>5?`<button data-all="${k}">すべて見る →</button>`:""}</h3>
     ${n?`<div class="list">${html}</div>`:`<div class="empty">該当なし</div>`}</section>`).join("")||loadingHtml("DATA LOADING");
-  box.querySelectorAll("[data-all]").forEach(b=>b.onclick=()=>{const k=b.dataset.all;if(k==="gigi"){S.ryuui.q=S.home.q;S.ryuui.tab="qa";go("ryuui");return}S[k].q=S.home.q;S[k].tab="search";go(k)});
+  box.querySelectorAll("[data-all]").forEach(b=>b.onclick=()=>{const k=b.dataset.all;if(k==="gigi"||k==="tekiyo"){S.ryuui.q=S.home.q;S.ryuui.tab=k==="gigi"?"qa":"tekiyo";go("ryuui");return}S[k].q=S.home.q;S[k].tab="search";go(k)});
 }
 document.addEventListener("click",e=>{
   const c=e.target.closest("[data-open]");if(!c)return;
@@ -517,7 +518,9 @@ function pinBadge(){const b=$("#pinc");b.hidden=!pins.length;b.textContent=pins.
 
 /* ===================================================================== 検査・画像診断 */
 const KPART={A:"基本診療料",B:"第1部 医学管理等",C:"第2部 在宅医療",D:"第3部 検査",E:"第4部 画像診断",F:"第5部 投薬",G:"第6部 注射",H:"第7部 リハビリテーション",I:"第8部 精神科専門療法",J:"第9部 処置",K:"第10部 手術",L:"第11部 麻酔",M:"第12部 放射線治療",N:"第13部 病理診断",O:"第14部 その他"};
-function kbnName(k){const s=D.ryuui&&!D.ryuui.error&&D.ryuui.byCode[k];return s?s.n:""}
+function kbnName(k){
+  if(k.endsWith("通則"))return`${KPART[k[0]]||""} 通則の加算等`; /* 部・節の通則に定める加算（区分番号を持たない） */
+  const s=D.ryuui&&!D.ryuui.error&&D.ryuui.byCode[k];return s?s.n:""}
 function searchKensa(terms,part){
   let rows=D.kensa.rows.filter(r=>r.p[S.kensa.rev]!=null&&(!part||r.k[0]===part)&&(!terms.length||terms.every(vs=>vs.some(v=>has(r.hs,v)||has(norm(kbnName(r.k)),v)))));
   if(terms.length){const w=terms[0];const sc=r=>{const n=norm(r.n);if(w.some(v=>n.startsWith(v)))return 0;if(w.some(v=>has(n,v)))return 1;if(w.some(v=>has(norm(r.y),v)))return 2;return 3};
@@ -614,6 +617,7 @@ function openKensa(id){
    ${sec?`<div class="blk" style="--mod:var(--ryuui)"><h3>NOTICE ／ 算定上の留意事項（${esc(r.k)}）</h3><div class="txt">${emph(linkify(markText(sec.t,terms)))}</div>
      <div class="btns"><button class="btn" data-open="ryuui:${sec.id}">留意事項で開く</button></div></div>`:""}
    ${typeof tekioBlock==="function"?tekioBlock(r):""}
+   ${typeof tekiyoBlock==="function"?tekiyoBlock(r.k,r.c):""}
    ${typeof gigiBlock==="function"?gigiBlock(r.k):""}
    ${typeof dpcForK==="function"&&r.k[0]==="K"?dpcForK(r.k):""}
    ${same.length>1?`<div class="blk"><h3>SAME SECTION ／ 同じ区分の項目 ${same.length}件</h3><div class="tbl"><table><tr><th>項目</th><th style="text-align:right">点数</th></tr>
@@ -647,7 +651,7 @@ function renderRyuui(){
   if(d.error){v.innerHTML=head("ryuui")+`<div class="empty">留意事項を読み込めませんでした（${esc(d.error)}）</div>`;return}
   const parts=[...new Set(d.secs.map(s=>s.pt).filter(Boolean))];
   const box=searchBox("rq","言葉・区分番号で本文を検索（例：同一日、D007、オンライン）",st.q,q=>{st.q=q;st.limit=40;ryuuiBody()});
-  v.innerHTML=head("ryuui")+`<div class="tabs2" role="tablist">${[["search","通知を検索"],["browse","目次"],...(APP.mods.includes("gigi")?[["qa","疑義解釈"],["jimu","事務連絡"]]:[])].map(([k,l])=>`<button role="tab" data-t="${k}" aria-selected="${st.tab===k}">${l}</button>`).join("")}</div>
+  v.innerHTML=head("ryuui")+`<div class="tabs2" role="tablist">${[["search","通知を検索"],["browse","目次"],...(APP.mods.includes("gigi")?[["qa","疑義解釈"],["jimu","事務連絡"]]:[]),...(APP.mods.includes("tekiyo")?[["tekiyo","摘要欄"]]:[])].map(([k,l])=>`<button role="tab" data-t="${k}" aria-selected="${st.tab===k}">${l}</button>`).join("")}</div>
     <div${st.tab==="browse"?" hidden":""}>${box.html}
     <div class="chips" id="rpc"${st.tab!=="search"?" hidden":""}><button class="chip" data-p="" aria-pressed="${!st.part}">すべての部</button>${parts.map(p=>`<button class="chip" data-p="${esc(p)}" aria-pressed="${st.part===p}">${esc(p.replace(/^第\d+部\s*/,""))}</button>`).join("")}</div></div>
     <div id="rbody"></div>`;
@@ -659,6 +663,7 @@ function renderRyuui(){
 function ryuuiBody(){
   const st=S.ryuui,d=D.ryuui,b=$("#rbody");if(!b)return;
   if(st.tab==="qa"||st.tab==="jimu")return gigiBody(b,st.tab);
+  if(st.tab==="tekiyo")return tekiyoBody(b);
   if(st.tab==="browse"){
     const groups=new Map();for(const s of d.secs){const k=s.pt||s.ch||"通則";if(!groups.has(k))groups.set(k,[]);groups.get(k).push(s)}
     b.innerHTML=`<p class="note" style="margin-top:14px">通知の章・部の順に並べています。</p>`+[...groups].map(([k,list])=>`<div class="part"><button><span>${esc(k)}</span><span class="n">${list.length}</span></button><div class="body" hidden>${list.map(s=>`<button class="sec-link" data-open="ryuui:${s.id}"><span class="code">${esc(s.c||"通則")}</span><span>${esc(s.n)}</span></button>`).join("")}</div></div>`).join("");
@@ -689,6 +694,7 @@ function openRyuui(id){
      <p class="note">出典：${esc(d.title)}${d.src?`（<a href="${esc(d.src)}" target="_blank" rel="noopener">PDF</a>）`:""}。PDFから自動で文字を取り出しているため、表や図は原文でご確認ください。</p></div>
    ${pts.length?`<div class="blk" style="--mod:var(--kensa)"><h3>POINTS ／ ${esc(s.c)} の点数</h3><div class="tbl"><table><tr><th>項目</th><th style="text-align:right">${esc(D.kensa.revs[0].label.replace("改定",""))}</th></tr>
      ${pts.map(r=>`<tr class="click" data-open="kensa:${r.id}"><td class="w">${esc(r.n)}</td><td class="n">${fmt(r.p[0])} ${r.u}</td></tr>`).join("")}</table></div></div>`:""}
+   ${typeof tekiyoBlock==="function"&&s.c?tekiyoBlock(s.c):""}
    ${typeof gigiBlock==="function"?gigiBlock(s.c):""}
    <div class="navpn">${prev?`<button data-open="ryuui:${prev.id}">← ${esc(prev.c||"")} ${esc(prev.n)}</button>`:"<span></span>"}${next?`<button data-open="ryuui:${next.id}">${esc(next.c||"")} ${esc(next.n)} →</button>`:"<span></span>"}</div>`);
 }
