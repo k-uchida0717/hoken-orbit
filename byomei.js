@@ -78,6 +78,7 @@ function openByomei(id){
   sheet("byomei",`<div class="eyebrow">ICD-10 ${esc(fmtIcd(r.icd1))} · ${esc(icdChapter(r.icd1))}</div><h2>${esc(r.n)}</h2><div class="sub" style="margin-top:4px">${esc(r.y)}</div>`,
   `<div class="blk"><h3>PROFILE</h3><dl class="kv"><dt>ICD-10</dt><dd><b class="icdb">${esc(fmtIcd(r.icd1)||"—")}</b> ${esc(icdName(r.icd1))}</dd>${r.icd2?`<dt>ICD-10(2)</dt><dd><b class="icdb">${esc(fmtIcd(r.icd2))}</b> ${esc(icdName(r.icd2))}</dd>`:""}<dt>傷病名コード</dt><dd style="font-family:var(--f-tech)">${esc(r.c)}</dd><dt>章</dt><dd>${esc(icdChapter(r.icd1))}</dd></dl></div>
    ${b6s.length?`<div class="blk" style="--mod:var(--dpc)"><h3>DPC ／ この ICD が属する診断群分類 ${b6s.length}件</h3><p class="note">分類を選ぶと、手術・処置を選びながら14桁の番号を確定できます。</p><div class="list">${b6s.map(b6=>`<button class="sec-link" data-open="dpc:B${b6}"><span class="code" style="color:var(--dpc)">${b6}</span><span style="flex:1">${esc(dpcName(b6))}</span></button>`).join("")}</div></div>`:`<div class="blk"><div class="empty">このICDに対応するDPC分類は電子点数表にありません（他の分類や「その他」に含まれる可能性があります）。</div></div>`}
+   ${typeof tekioForDisease==="function"?tekioForDisease(r):""}
    ${same.length?`<div class="blk"><h3>SAME ICD ／ 同じICD-10の傷病名 ${same.length}件</h3><div class="list">${same.slice(0,40).map(x=>`<button class="sec-link" data-open="byomei:${x.id}"><span style="flex:1">${esc(x.n)}</span><span class="note">${esc(x.y)}</span></button>`).join("")}</div></div>`:""}
    <p class="note">出典：社会保険診療報酬支払基金・厚生労働省「傷病名マスター」（${esc(d.src)}）、厚生労働省「診断群分類（DPC）電子点数表」。</p>`);
 }

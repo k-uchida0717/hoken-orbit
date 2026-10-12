@@ -137,6 +137,7 @@ const D={yakka:null,kensa:null,ryuui:null,dpc:null,byomei:null,eff:null,man:null
 /* モジュール登録：画面・詳細シート・ホームの惑星と横断検索を、各ファイルからここへ追加する */
 const MODS=[];
 const PREP={};
+const OPENERS={}; /* 惑星を持たない詳細シート（疑義解釈など） */
 const ready={};
 function load(){
   const j=u=>VAULT.json(u);
@@ -144,7 +145,7 @@ function load(){
   const prep={yakka:prepYakka,kensa:prepKensa,ryuui:prepRyuui,...PREP};
   for(const k of keys)ready[k]=j(k+"-data.json").then(prep[k]);
   j("manifest.json").then(m=>{D.man=m;liveChip()}).catch(()=>{});
-  for(const k of keys)ready[k].then(()=>{if(route.name==="home")renderHome();else if(route.name===k||(k==="ryuui"&&route.name==="kensa"))render()}).catch(e=>{D[k]={error:e.message};if(route.name===k||route.name==="home")render()});
+  for(const k of keys)ready[k].then(()=>{if(route.name==="home")renderHome();else if(route.name===k||(k==="ryuui"&&route.name==="kensa")||(k==="gigi"&&route.name==="ryuui"))render()}).catch(e=>{D[k]={error:e.message};if(route.name===k||route.name==="home")render()});
   ready.all=Promise.allSettled(keys.map(k=>ready[k]));
 }
 function prepYakka(d){
@@ -159,7 +160,9 @@ function prepYakka(d){
       if(k){const v=eff.y[k];r.ef=v[0];r.ct=v[1];r.cb=v[2]??-1;r.efx=x;r.efr=eff.r&&eff.r[k];
         /* 規格（量）によって適応が違う文書：その規格に当てはまる行だけで「この規格の適応」を作る */
         if(v.length>3&&v[3]>=0){r.doc=v[3];r.bi=x==="exact"?v[4]:-1;
-          if(r.bi>=0){r.own=ownLines(eff.d[r.doc],r.bi).join("\n");r.ownN=norm(r.own)}}}}
+          if(r.bi>=0){r.own=ownLines(eff.d[r.doc],r.bi).join("\n");r.ownN=norm(r.own)}}
+        /* u: 用法・用量 [本文の番号(, 規格別文書, その規格の番号)] */
+        const u=eff.u&&eff.u[k];if(u){r.ud=u[0];if(u.length>1&&u[1]>=0){r.udoc=u[1];r.ubi=x==="exact"?u[2]:-1}}}}
   });
 }
 /* ---------- 規格別の適応 ---------- */
@@ -201,6 +204,18 @@ function strengthBlock(r,terms){
     </table></div>
     <details class="raw"><summary>添付文書の記載どおりに見る</summary><div class="txt">${markText(D.eff.t[r.ef],terms)}</div></details>`;
 }
+/* 用法・用量：規格で量が違う文書は、この規格に当てはまる行だけを出し、原文は折りたたむ */
+function doseBlock(r,terms){
+  const raw=emph(markText(D.eff.t[r.ud],terms));
+  if(r.udoc==null)return`<div class="txt">${raw}</div>`;
+  const doc=D.eff.d[r.udoc],names=shortNames(doc.b),bi=r.ubi;
+  if(bi<0)return`<div class="warnbox">規格（含量・剤形）によって用法・用量が異なる薬です。この品目がどの規格かを特定できないため、【 】の規格名の見出しで確認してください。</div><div class="txt">${raw}</div>`;
+  const own=doc.l.filter(([s,set,h])=>!h&&applies(set,bi)).map(l=>markText(l[0],terms));
+  return`<div class="warnbox">規格（含量・剤形）によって用法・用量が異なる薬です。下はこの品目（${esc(names[bi])}）に当てはまる記載です。</div>
+    <div class="subh">この規格の用法・用量 <span class="pill on">${esc(names[bi])}</span></div>
+    <div class="txt">${emph(own.join("\n"))||"（該当なし）"}</div>
+    <details class="raw"><summary>添付文書の記載どおりに見る（全規格）</summary><div class="txt">${raw}</div></details>`;
+}
 function prepKensa(d){
   const rows=d.rows.map((a,id)=>({id,c:a[0],k:a[1],h:a[2],n:nk(a[3]),u:a[4],p:a[5],y:nk(a[6]||""),
     hs:norm(a[3]+"|"+(a[6]||"")+"|"+a[1]+"|"+a[0])}));
@@ -223,8 +238,8 @@ const route={name:"home"};
 const S={
   home:{q:""},
   yakka:{q:"",tab:"search",kub:new Set(),gen:"",rev:0,limit:60,cls:null,pair:"1-0",dir:"down",cq:"",climit:60},
-  kensa:{q:"",tab:"search",part:"",rev:0,limit:80,pair:"1-0",dir:"down",climit:60},
-  ryuui:{q:"",tab:"search",part:"",limit:40,open:null},
+  kensa:{q:"",tab:"search",part:"",rev:0,limit:80,pair:"1-0",dir:"down",climit:60,dz:false},
+  ryuui:{q:"",tab:"search",part:"",limit:40,open:null,gsec:""},
 };
 let pins=store.get("orbit.pins",[]);
 /* 画面切替はハッシュ変更イベントに頼らず直接描画する（公開ページの枠内では hashchange が届かないことがあるため）。
@@ -314,14 +329,15 @@ function homeResults(){
   if(D.kensa&&!D.kensa.error){const r=searchKensa(terms,"");secs.push(["kensa","診療行為・点数",r.length,r.slice(0,5).map(x=>kensaCard(x,0,terms)).join("")])}
   for(const m of MODS)if(D[m.key]&&!D[m.key].error){const r=m.search(terms);secs.push([m.key,m.label,r.length,r.slice(0,5).map(x=>m.card(x,terms)).join("")])}
   if(D.ryuui&&!D.ryuui.error){const r=searchRyuui(terms,"");secs.push(["ryuui","留意事項",r.length,r.slice(0,5).map(x=>ryuuiCard(x,terms)).join("")])}
+  if(typeof gigiOk==="function"&&gigiOk()){const r=searchGigi(terms,"");secs.push(["gigi","疑義解釈",r.length,r.slice(0,5).map(x=>gigiCard(x,terms)).join("")])}
   box.innerHTML=secs.map(([k,l,n,html])=>`<section class="xsec" style="--c:var(--${k});--mod:var(--${k})"><h3><i></i>${l}<span>${n.toLocaleString()} 件</span>${n>5?`<button data-all="${k}">すべて見る →</button>`:""}</h3>
     ${n?`<div class="list">${html}</div>`:`<div class="empty">該当なし</div>`}</section>`).join("")||loadingHtml("DATA LOADING");
-  box.querySelectorAll("[data-all]").forEach(b=>b.onclick=()=>{const k=b.dataset.all;S[k].q=S.home.q;S[k].tab="search";go(k)});
+  box.querySelectorAll("[data-all]").forEach(b=>b.onclick=()=>{const k=b.dataset.all;if(k==="gigi"){S.ryuui.q=S.home.q;S.ryuui.tab="qa";go("ryuui");return}S[k].q=S.home.q;S[k].tab="search";go(k)});
 }
 document.addEventListener("click",e=>{
   const c=e.target.closest("[data-open]");if(!c)return;
   e.preventDefault();const [k,id]=c.dataset.open.split(":");
-  const extra=Object.fromEntries(MODS.map(m=>[m.key,m.open]));
+  const extra={...OPENERS,...Object.fromEntries(MODS.map(m=>[m.key,m.open]))};
   ({yakka:openYakka,kensa:openKensa,ryuui:openRyuui,...extra})[k](k==="dpc"?id:+id);
 });
 document.addEventListener("keydown",e=>{
@@ -479,9 +495,10 @@ function openYakka(id){
     <div class="big"><span class="v">${fmt(r.p[st.rev])}</span><span class="u">円／${esc(r.s)}　${esc(d.revs[st.rev].label)}</span>${delta(prevOf(r.p,st.rev),r.p[st.rev])}</div>`,
   `<div class="blk"><h3>INDICATIONS ／ 効能・効果</h3>${r.ef>=0&&r.doc>=0?strengthBlock(r,terms):r.ef>=0?`<div class="txt">${emph(markText(D.eff.t[r.ef],terms))}</div>`
       :`<div class="txt" style="color:var(--dim)">${D.eff?"この品目の添付文書データが見つかりませんでした。":"効能・効果データは未登録です。"}下のリンクから確認できます。</div>`}</div>
+  ${r.ud!=null?`<div class="blk"><h3>DOSAGE ／ 用法・用量</h3>${doseBlock(r,terms)}</div>`:""}
   ${r.ct>=0?`<div class="blk" style="--mod:var(--up)"><h3>CONTRAINDICATIONS ／ 禁忌</h3><div class="txt">${emph(markText(D.eff.t[r.ct],terms))}</div></div>`:""}
   ${r.ef>=0?`<div class="blk" style="--mod:var(--up)"><h3>CONTRAINDICATED COMBINATIONS ／ 併用禁忌</h3>${r.cb>=0?comboTable(r.cb,terms):`<div class="txt" style="color:var(--dim)">添付文書に併用禁忌の記載はありません。</div>`}</div>`:""}
-  ${r.ef>=0?`<p class="note">出典：PMDA 医療用医薬品 添付文書を加工して作成（${esc(D.eff.built)}取得${r.efr?`・${esc(r.efr)}改訂版`:""}）${r.efx==="near"?"。この品目の添付文書が見つからないため、同じ成分・剤形の添付文書の記載を表示しています。":""}用法・用量や併用注意などは添付文書の原文でご確認ください。</p>`:""}
+  ${r.ef>=0?`<p class="note">出典：PMDA 医療用医薬品 添付文書を加工して作成（${esc(D.eff.built)}取得${r.efr?`・${esc(r.efr)}改訂版`:""}）${r.efx==="near"?"。この品目の添付文書が見つからないため、同じ成分・剤形の添付文書の記載を表示しています。":""}併用注意や特定の背景を有する患者への注意などは添付文書の原文でご確認ください。</p>`:""}
   <div class="blk"><h3>PRICE TIMELINE ／ 直近3回の改定</h3>${timeline(d.revs,r.p,st.rev,"円")}</div>
   <div class="blk"><h3>PROFILE</h3><dl class="kv">
     <dt>薬効分類</dt><dd><b>${esc(r.cl)} ${esc(clsName(r.c))}</b><br><span class="note">${esc(CLS2[+r.c.slice(0,2)]||"")}／${esc(CLS1[+r.c[0]]||"")}</span></dd>
@@ -519,13 +536,16 @@ function renderKensa(){
   const v=$("#view"),st=S.kensa,d=D.kensa;
   if(!d){v.innerHTML=head("kensa")+loadingHtml("RECEIVING FEE DATA");return}
   if(d.error){v.innerHTML=head("kensa")+`<div class="empty">点数データを読み込めませんでした（${esc(d.error)}）</div>`;return}
-  const box=searchBox("kq","診療行為名・術式・読み・区分番号（例：K546、PCI、CT、けつえき）",st.q,q=>{st.q=q;st.limit=80;kensaBody()});
+  const dzOn=st.dz&&typeof tekioSearch==="function";
+  const box=searchBox("kq",dzOn?"病名・読み・ICD-10（例：2型糖尿病、かんこうへん、C22）":"診療行為名・術式・読み・区分番号（例：K546、PCI、CT、けつえき）",st.q,q=>{st.q=q;st.limit=80;kensaBody()});
   v.innerHTML=head("kensa")+`<div class="tabs2" role="tablist">${[["search","検索"],["compare","改定比較"]].map(([k,l])=>`<button role="tab" data-t="${k}" aria-selected="${st.tab===k}">${l}</button>`).join("")}</div>
     <div${st.tab==="compare"?" hidden":""}>${box.html}
     <div class="chips" id="kpc"><button class="chip" data-p="" aria-pressed="${!st.part}">すべて</button>${Object.entries(KPART).map(([k,l])=>`<button class="chip" data-p="${k}" aria-pressed="${st.part===k}">${k} ${esc(l.replace(/^第\d+部\s*/,""))}</button>`).join("")}</div>
+    ${typeof tekioSearch==="function"?`<div class="chips"><button class="chip" id="kdz" aria-pressed="${!!st.dz}" style="--mod:var(--tekio)">病名から探す（適応病名）</button></div>`:""}
     ${revSeg(d.revs,st.rev,"krev")}</div><div id="kbody"></div>`;
   box.bind();
   v.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{st.tab=b.dataset.t;renderKensa()});
+  const dz=$("#kdz");if(dz)dz.onclick=()=>{st.dz=!st.dz;st.limit=80;renderKensa()};
   $("#kpc").onclick=e=>{const b=e.target.closest("button");if(!b)return;st.part=b.dataset.p;$("#kpc").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x.dataset.p===st.part));st.limit=80;kensaBody()};
   $("#krev").onclick=e=>{const b=e.target.closest("button");if(!b)return;st.rev=+b.dataset.r;$("#krev").querySelectorAll("button").forEach((x,i)=>x.setAttribute("aria-pressed",i===st.rev));kensaBody()};
   kensaBody();
@@ -533,7 +553,21 @@ function renderKensa(){
 function kensaBody(){
   const st=S.kensa,d=D.kensa,b=$("#kbody");if(!b)return;
   if(st.tab==="compare")return kensaCompare(b);
-  const terms=queryTerms(st.q);const rows=searchKensa(terms,st.part);
+  const terms=queryTerms(st.q);
+  if(st.dz&&typeof tekioSearch==="function"){ /* 病名 → 適応になる診療行為 */
+    if(!terms.length){b.innerHTML=`<div class="panel" style="padding:16px;margin-top:14px"><p class="lead" style="margin:0 0 10px">病名を入れると、その病名が「適応」になっている検査・処置・手術などを探します（DX審査支払機構のコンピュータチェックで適応と判断している組み合わせ）。</p>
+      <div class="chips">${["2型糖尿病","肝細胞癌","心筋梗塞","甲状腺機能低下症","関節リウマチ"].map(x=>`<button class="chip ex">${x}</button>`).join("")}</div></div>`;
+      b.querySelectorAll(".ex").forEach(x=>x.onclick=()=>{st.q=x.textContent;$("#kq").value=st.q;kensaBody()});return}
+    if(!D.byomei||D.byomei.error||!D.tekio){b.innerHTML=loadingHtml("RECEIVING DISEASE MASTER");(ready.byomei||Promise.resolve()).then(()=>ready.tekio).then(()=>kensaBody()).catch(()=>{});return}
+    const hits=tekioSearch(terms,st.part);
+    DL.kensa=()=>({name:`適応病名_${st.q}`,header:["区分番号","診療行為コード","名称","点数","一致した適応病名"],rows:hits.map(([r,m])=>[r.k,r.c,r.n,r.p[st.rev],m.map(([x,f])=>x.n+(f?`（${SUSP[f]}）`:"")).join("、")])});
+    b.innerHTML=`<div class="meta"><span>${hits.length.toLocaleString()} 件</span><span>入力した病名が適応に入っている診療行為 ${hits.length?dlBtn("kensa"):""}</span></div>
+      ${hits.length?`<div class="list">${hits.slice(0,st.limit).map(([r,m])=>tekioCard(r,m,terms)).join("")}</div>`:`<div class="empty">該当する診療行為がありません。病名を短くする（例：「糖尿病」）か、読みでお試しください。</div>`}
+      ${hits.length>st.limit?`<button class="more" id="kmore">さらに表示（残り ${(hits.length-st.limit).toLocaleString()} 件）</button>`:""}`;
+    const m=$("#kmore");if(m)m.onclick=()=>{st.limit+=100;kensaBody()};
+    return;
+  }
+  const rows=searchKensa(terms,st.part);
   if(!terms.length){ /* 区分番号ごとの目次 */
     const g=new Map();for(const r of rows){if(!g.has(r.k))g.set(r.k,[]);g.get(r.k).push(r)}
     const keys=[...g.keys()];
@@ -579,9 +613,12 @@ function openKensa(id){
    <div class="blk"><h3>PROFILE</h3><dl class="kv"><dt>区分番号</dt><dd><b>${esc(r.k)}</b> ${esc(kbnName(r.k))}</dd><dt>診療行為コード</dt><dd style="font-family:var(--f-tech)">${esc(r.c)}</dd>${r.y?`<dt>読み</dt><dd>${esc(r.y)}</dd>`:""}</dl></div>
    ${sec?`<div class="blk" style="--mod:var(--ryuui)"><h3>NOTICE ／ 算定上の留意事項（${esc(r.k)}）</h3><div class="txt">${emph(linkify(markText(sec.t,terms)))}</div>
      <div class="btns"><button class="btn" data-open="ryuui:${sec.id}">留意事項で開く</button></div></div>`:""}
+   ${typeof tekioBlock==="function"?tekioBlock(r):""}
+   ${typeof gigiBlock==="function"?gigiBlock(r.k):""}
    ${typeof dpcForK==="function"&&r.k[0]==="K"?dpcForK(r.k):""}
    ${same.length>1?`<div class="blk"><h3>SAME SECTION ／ 同じ区分の項目 ${same.length}件</h3><div class="tbl"><table><tr><th>項目</th><th style="text-align:right">点数</th></tr>
      ${same.map(x=>`<tr class="${x===r?"cur":"click"}" ${x===r?"":`data-open="kensa:${x.id}"`}><td class="w">${esc(x.n)}</td><td class="n">${fmt(x.p[st.rev])}</td></tr>`).join("")}</table></div></div>`:""}`);
+  if(typeof bindTekio==="function")bindTekio();
 }
 
 /* ===================================================================== 留意事項 */
@@ -610,9 +647,9 @@ function renderRyuui(){
   if(d.error){v.innerHTML=head("ryuui")+`<div class="empty">留意事項を読み込めませんでした（${esc(d.error)}）</div>`;return}
   const parts=[...new Set(d.secs.map(s=>s.pt).filter(Boolean))];
   const box=searchBox("rq","言葉・区分番号で本文を検索（例：同一日、D007、オンライン）",st.q,q=>{st.q=q;st.limit=40;ryuuiBody()});
-  v.innerHTML=head("ryuui")+`<div class="tabs2" role="tablist">${[["search","検索"],["browse","目次から探す"]].map(([k,l])=>`<button role="tab" data-t="${k}" aria-selected="${st.tab===k}">${l}</button>`).join("")}</div>
+  v.innerHTML=head("ryuui")+`<div class="tabs2" role="tablist">${[["search","通知を検索"],["browse","目次"],...(APP.mods.includes("gigi")?[["qa","疑義解釈"],["jimu","事務連絡"]]:[])].map(([k,l])=>`<button role="tab" data-t="${k}" aria-selected="${st.tab===k}">${l}</button>`).join("")}</div>
     <div${st.tab==="browse"?" hidden":""}>${box.html}
-    <div class="chips" id="rpc"><button class="chip" data-p="" aria-pressed="${!st.part}">すべての部</button>${parts.map(p=>`<button class="chip" data-p="${esc(p)}" aria-pressed="${st.part===p}">${esc(p.replace(/^第\d+部\s*/,""))}</button>`).join("")}</div></div>
+    <div class="chips" id="rpc"${st.tab!=="search"?" hidden":""}><button class="chip" data-p="" aria-pressed="${!st.part}">すべての部</button>${parts.map(p=>`<button class="chip" data-p="${esc(p)}" aria-pressed="${st.part===p}">${esc(p.replace(/^第\d+部\s*/,""))}</button>`).join("")}</div></div>
     <div id="rbody"></div>`;
   box.bind();
   v.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{st.tab=b.dataset.t;renderRyuui()});
@@ -621,6 +658,7 @@ function renderRyuui(){
 }
 function ryuuiBody(){
   const st=S.ryuui,d=D.ryuui,b=$("#rbody");if(!b)return;
+  if(st.tab==="qa"||st.tab==="jimu")return gigiBody(b,st.tab);
   if(st.tab==="browse"){
     const groups=new Map();for(const s of d.secs){const k=s.pt||s.ch||"通則";if(!groups.has(k))groups.set(k,[]);groups.get(k).push(s)}
     b.innerHTML=`<p class="note" style="margin-top:14px">通知の章・部の順に並べています。</p>`+[...groups].map(([k,list])=>`<div class="part"><button><span>${esc(k)}</span><span class="n">${list.length}</span></button><div class="body" hidden>${list.map(s=>`<button class="sec-link" data-open="ryuui:${s.id}"><span class="code">${esc(s.c||"通則")}</span><span>${esc(s.n)}</span></button>`).join("")}</div></div>`).join("");
@@ -651,6 +689,7 @@ function openRyuui(id){
      <p class="note">出典：${esc(d.title)}${d.src?`（<a href="${esc(d.src)}" target="_blank" rel="noopener">PDF</a>）`:""}。PDFから自動で文字を取り出しているため、表や図は原文でご確認ください。</p></div>
    ${pts.length?`<div class="blk" style="--mod:var(--kensa)"><h3>POINTS ／ ${esc(s.c)} の点数</h3><div class="tbl"><table><tr><th>項目</th><th style="text-align:right">${esc(D.kensa.revs[0].label.replace("改定",""))}</th></tr>
      ${pts.map(r=>`<tr class="click" data-open="kensa:${r.id}"><td class="w">${esc(r.n)}</td><td class="n">${fmt(r.p[0])} ${r.u}</td></tr>`).join("")}</table></div></div>`:""}
+   ${typeof gigiBlock==="function"?gigiBlock(s.c):""}
    <div class="navpn">${prev?`<button data-open="ryuui:${prev.id}">← ${esc(prev.c||"")} ${esc(prev.n)}</button>`:"<span></span>"}${next?`<button data-open="ryuui:${next.id}">${esc(next.c||"")} ${esc(next.n)} →</button>`:"<span></span>"}</div>`);
 }
 
